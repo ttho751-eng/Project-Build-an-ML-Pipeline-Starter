@@ -23,6 +23,7 @@ import wandb
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline, make_pipeline
+from sklearn.pipeline import Pipeline
 
 
 def delta_date_feature(dates):
@@ -73,8 +74,7 @@ def go(args):
 
     ######################################
     # Fit the pipeline sk_pipe by calling the .fit method on X_train and y_train
-    # YOUR CODE HERE
-    ######################################
+    sk_pipe.fit(X_train, y_train)
 
     # Compute r2 and MAE
     logger.info("Scoring")
@@ -94,13 +94,11 @@ def go(args):
 
     ######################################
     # Save the sk_pipe pipeline as a mlflow.sklearn model in the directory "random_forest_dir"
-    # HINT: use mlflow.sklearn.save_model
     mlflow.sklearn.save_model(
-        # YOUR CODE HERE
-        input_example = X_train.iloc[:5]
+        sk_pipe,
+        "random_forest_dir",
+        input_example=X_train.iloc[:5],
     )
-    ######################################
-
 
     # Upload the model we just exported to W&B
     artifact = wandb.Artifact(
@@ -119,8 +117,8 @@ def go(args):
     # Here we save variable r_squared under the "r2" key
     run.summary['r2'] = r_squared
     # Now save the variable mae under the key "mae".
-    # YOUR CODE HERE
-    ######################################
+    run.summary["mae"] = mae
+
 
     # Upload to W&B the feture importance visualization
     run.log(
@@ -147,24 +145,83 @@ def plot_feature_importance(pipe, feat_names):
 
 
 def get_inference_pipeline(rf_config, max_tfidf_features):
-    # Let's handle the categorical features first
-    # Ordinal categorical are categorical values for which the order is meaningful, for example
-    # for room type: 'Entire home/apt' > 'Private room' > 'Shared room'
+    # Categorical features
     ordinal_categorical = ["room_type"]
     non_ordinal_categorical = ["neighbourhood_group"]
-    # NOTE: we do not need to impute room_type because the type of the room
-    # is mandatory on the websites, so missing values are not possible in production
-    # (nor during training). That is not true for neighbourhood_group
+
     ordinal_categorical_preproc = OrdinalEncoder()
 
-    ######################################
-    # Build a pipeline with two steps:
-    # 1 - A SimpleImputer(strategy="most_frequent") to impute missing values
-    # 2 - A OneHotEncoder() step to encode the variable
-    non_ordinal_categorical_preproc = make_pipeline(
-        # YOUR CODE HERE
+    non_ordinal_categorical_preproc = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore")),
+        ]
     )
-    ######################################
+
+    # Numerical and date features
+    numerical_features = [
+        "minimum_nights",
+        "number_of_reviews",
+        "reviews_per_month",
+        "calculated_host_listings_count",
+        "availability_365",
+        "latitude",
+        "longitude",
+    ]
+    date_features = ["last_review"]
+
+    # Numerical preprocessing
+    numerical_preproc = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+        ]
+    )
+
+    # Date preprocessing
+    date_preproc = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="constant", fill_value="2010-01-01")),
+            ("delta", FunctionTransformer(delta_date_feature, validate=False)),
+        ]
+    )
+
+    # Text preprocessing for "name"
+    reshape_to_1d = FunctionTransformer(np.reshape, kw_args={"newshape": -1})
+    name_tfidf = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="constant", fill_value="")),
+            ("reshape", reshape_to_1d),
+            ("tfidf", TfidfVectorizer(max_features=max_tfidf_features, stop_words="english")),
+        ]
+    )
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("ordinal_cat", ordinal_categorical_preproc, ordinal_categorical),
+            ("non_ordinal_cat", non_ordinal_categorical_preproc, non_ordinal_categorical),
+            ("num", numerical_preproc, numerical_features),
+            ("date", date_preproc, date_features),
+            ("name", name_tfidf, ["name"]),
+        ],
+        remainder="drop",
+    )
+
+    processed_features = (
+            ordinal_categorical
+            + non_ordinal_categorical
+            + numerical_features
+            + ["last_review"]
+            + ["name"]
+    )
+
+    sk_pipe = Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            ("random_forest", RandomForestRegressor(**rf_config)),
+        ]
+    )
+
+    return sk_pipe, processed_features
 
     # Let's impute the numerical columns to make sure we can handle missing values
     # (note that we do not scale because the RF algorithm does not need that)
