@@ -180,8 +180,9 @@ Please, make sure all steps are using **the same** python version and that you h
 
 [License](LICENSE.txt)
 
-##Project Submission Information:
+### Project Submission Information:
 GitHub Repository https://github.com/ttho751-eng/Project-Build-an-ML-Pipeline-Starter.git
+
 W&B Project Report Link
 https://wandb.ai/ttho751-western-governors-university/nyc_airbnb/reports/NYC-Airbnb-Price-Prediction-ML-Pipeline--VmlldzoxNTkzMTg2MA?accessToken=xnv2nnfctfmwmj25i2suwtvb6ybctszyuqdv1g8tlwyvpr2w0t589f2vle3ovajc
 
